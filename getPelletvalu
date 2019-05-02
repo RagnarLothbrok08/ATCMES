@@ -1,0 +1,159 @@
+USE [PMES]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_GetPelletingValues]    Script Date: 5/2/2019 5:12:51 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER proc [dbo].[sp_GetPelletingValues]
+    --@dtDate DATETIME = '1900/01/01'
+	@myDate DATETIME = '',
+	@myLine VARCHAR(50) = '',
+	@intMode INT = 0
+AS
+
+BEGIN
+
+		IF @myLine = 301
+		BEGIN
+			SET @myLine = 30
+		END
+		IF @myLine = 311
+		BEGIN
+			SET @myLine = 40
+		END
+		DECLARE @ShiftStart time 
+		DECLARE @ShiftEnd time 
+		DECLARE @date3 time = @myDate
+		DECLARE @date4 time = @date3 
+		DECLARE @Ctr int = (SELECT COUNT(intShiftID) FROM tblPShift)
+		DECLARE @x int = 1
+		DECLARE @myID int
+		WHILE @x <= @Ctr
+		BEGIN
+		SELECT @ShiftStart = DATEADD(SECOND,1,tmShiftStart),@ShiftEnd = DATEADD(SECOND,-1,tmShiftEnd) FROM tblPShift 
+		WHERE intShiftID = @x  
+
+			IF @date3 < @ShiftStart or @date3 > @ShiftEnd or @date4 < @ShiftStart or @date4 > @ShiftEnd	
+			BEGIN
+			--SELECT getdate()
+			print 'false' + CONVERT(VARCHAR(5),@myID)
+			END
+			ELSE
+			BEGIN
+			print 'true'
+			SET @myID = @x
+	
+			END
+		SET @x = @x + 1
+		END
+		IF @date3 <> '00:00'
+			BEGIN
+			DECLARE @dtS DATETIME = (SELECT CONVERT(VARCHAR(11),@myDate) + ' ' 
+			--+ CONVERT(VARCHAR(10),DATEADD(SECOND,1,tmShiftStart)) FROM tblPShift WHERE intShiftNo = @myID)
+			+ CONVERT(VARCHAR(10),tmShiftStart) FROM tblPShift WHERE intShiftNo = @myID)
+			DECLARE @dtE DATETIME = (SELECT CONVERT(VARCHAR(11),@myDate) + ' ' 
+			+ CONVERT(VARCHAR(10),DATEADD(SECOND,-1,tmShiftEnd)) FROM tblPShift WHERE intShiftNo = @myID);
+			END;
+		IF @date3 = '00:00'
+			BEGIN
+			SET @dtS = (SELECT CONVERT(VARCHAR(11),@myDate) + ' ' + '00:01')
+			SET @dtE  = (SELECT CONVERT(VARCHAR(11),@myDate) + ' ' + '23:59')
+			END;
+
+		IF @intMode = 0
+	BEGIN
+		WITH myData 
+		AS
+		(
+		SELECT *,t5.AR_ARTICLECODE [PRODCODE],UPPER(t5.AR_NAME) [PRODDESC]  FROM [X].[MachineLoggingRepFM2].[dbo].[MachineLog] t1
+		INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_PRESSPROGRAM t4 ON t1.LotNumber = t4.PRM_LOTNUMBER
+		INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_ARTICLE t5 on t4.PRM_PRODUCTID = t5.AR_ARTICLE_ID
+		WHERE  LogDate BETWEEN @dtS AND @dtE
+		AND
+		MachineLocationID LIKE '%' + @myLine + '%'
+		AND LotNumber <> 0
+		)
+
+		--SELECT * FROM myData
+		SELECT CONVERT(VARCHAR(50),CAST(SUM(ActualValue)/1000 AS DECIMAL(10,2))) [ShiftRunVal],
+		CAST((CONVERT(FLOAT,CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN 15 ELSE DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) END )/60) AS DECIMAL(10,2)) [RUN TIME],
+		--CONVERT(FLOAT,DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate))) /60 [RUN TIME],
+		CAST(ISNULL((SUM([ActualValue])/1000)/CAST((CONVERT(FLOAT,CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN 15 ELSE DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) END )/60) AS DECIMAL(10,2)),0) as decimal (10,2)) [RUN RATE],
+		CAST(AVG(t2.[3101]) AS DECIMAL(10,2))[TEMP],CAST(AVG(t2.[3111]) AS DECIMAL(10,2)) [LOAD],
+		t1.ProdCode,t1.ProdDesc,
+		CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN DATEADD(MINUTE,-15,MIN(LogDate)) ELSE MIN(LogDate) END [AssOONN],
+		MAX(LogDate) [AssOOFF],
+		@dtS [ShiftStart],@dtE [ShiftEnd],
+		--cast(ISNULL((sum(ActualValue)/1000)/(cast (datepart(hour,(@dte - @dts)) as decimal(5,0))
+		--+(cast (datepart(MINUTE,(@dte - @dts)) as decimal(5,1))/60)),null) as decimal (10,2)) [RUN RATE],
+		--SUBSTRING(CONVERT(VARCHAR(50),t1.LotNumber),9,3) [LINE]
+		t1.LotNumber,SUBSTRING(CONVERT(VARCHAR(50),t1.LotNumber),9,3) [LINE]
+		FROM myData t1
+		LEFT JOIN [X].[BatchExplorerRepFM2].[dbo].[vueMashLoad] t2 ON t1.LotNumber = t2.PVR_LOTNUMBER
+		--LEFT JOIN vueProdCodeviaLOT t3 ON t1.LotNumber = t3.PRESSLOT
+		--LEFT JOIN [vuePelletingRAW] t3 ON t1.LotNumber = t3.MACHLOGLOT
+		WHERE ActualValue <> 0
+		GROUP BY t1.LotNumber,t1.ProdCode,t1.ProdDesc
+	END
+
+		IF @intMode = 1
+	BEGIN
+		WITH myData 
+		AS
+		(
+		SELECT *,t5.AR_ARTICLECODE [PRODCODE],UPPER(t5.AR_NAME) [PRODDESC]  FROM [X].[MachineLoggingRepFM2].[dbo].[MachineLog] t1
+		INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_PRESSPROGRAM t4 ON t1.LotNumber = t4.PRM_LOTNUMBER
+		INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_ARTICLE t5 on t4.PRM_PRODUCTID = t5.AR_ARTICLE_ID
+		WHERE  LogDate BETWEEN @dtS AND @dtE
+		AND
+		MachineLocationID LIKE '%' + @myLine + '%'
+		AND LotNumber <> 0
+		)
+
+		--SELECT * FROM myData
+		SELECT CONVERT(VARCHAR(50),CAST(SUM(ActualValue)/1000 AS DECIMAL(10,2))) [ShiftRunVal],
+		CAST((CONVERT(FLOAT,CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN 15 ELSE DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) END )/60) AS DECIMAL(10,2)) [RUN TIME],
+		--CONVERT(FLOAT,DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate))) /60 [RUN TIME],
+		CAST(ISNULL((SUM([ActualValue])/1000)/CAST((CONVERT(FLOAT,CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN 15 ELSE DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) END )/60) AS DECIMAL(10,2)),0) as decimal (10,2)) [RUN RATE],
+		t1.ProdCode,t1.ProdDesc,
+		CASE WHEN DATEDIFF(MINUTE,MIN(LogDate),MAX(LogDate)) = 0 THEN DATEADD(MINUTE,-15,MIN(LogDate)) ELSE MIN(LogDate) END [AssOONN],
+		MAX(LogDate) [AssOOFF],
+		--cast(ISNULL((sum(ActualValue)/1000)/(cast (datepart(hour,(@dte - @dts)) as decimal(5,0))
+		--+(cast (datepart(MINUTE,(@dte - @dts)) as decimal(5,1))/60)),null) as decimal (10,2)) [RUN RATE],
+		--SUBSTRING(CONVERT(VARCHAR(50),t1.LotNumber),9,3) [LINE]
+		t1.LotNumber,SUBSTRING(CONVERT(VARCHAR(50),t1.LotNumber),9,3) [LINE]
+		FROM myData t1
+		LEFT JOIN [X].[BatchExplorerRepFM2].[dbo].[vueMashLoad] t2 ON t1.LotNumber = t2.PVR_LOTNUMBER
+		--LEFT JOIN vueProdCodeviaLOT t3 ON t1.LotNumber = t3.PRESSLOT
+		--LEFT JOIN [vuePelletingRAW] t3 ON t1.LotNumber = t3.MACHLOGLOT
+		WHERE ActualValue <> 0
+		GROUP BY t1.LotNumber,t1.ProdCode,t1.ProdDesc
+	END
+END
+
+
+
+--DECLARE @myDATe DATETIME = getdate()
+--EXEC [dbo].[getShift] @myDATe
+--SELECT * FROM tblPShift WHERE intShiftID = 3
+--EXEC [sp_GetRunningValues] '2018-11-08'
+--EXEC [sp_GetRunningValues] '2018-11-08','301'
+--EXEC [sp_GetRunningValues] '2018-11-08','311'
+--SELECT * FROM tblPShift
+--EXEC [dbo].[sp_procDownTimeList] 
+--======================================================================
+--SELECT * FROM [X].[MachineLoggingRepFM2].[dbo].[MachineLog]
+
+--DOWNTIME
+--HIGH CURRENT OCCURENCE 
+--WHEN OPS NOTICE THAT PRESS ENGINE EXPERIENCING HIGH CURRENT, OPS WILL DIVERT THE FEEDER WHICH WILL RESULT AS DISCHARGES, *STOP FEEDER PP02 SCREW CONVEYOR
+--END OF DOWNTIME WHEN SWITCH TO DIVERT AT PELLETING, SAMPLING CHECK IF HAS BLACK PELLETS IF NONE THEN RESUME
+--EACH DT LAST FOR 3-5 MINUTES 
+--EVERY SHIFT AVERAGE OF 4 PER SHIFT MAX OF 5 OCCURENCE
+--ALMOST 1.5 HOURS PER DAY 
+
+--CONSIDER TO AFFECTING THE RUNNING VALUES SINCE PELLETING STATUS IS STILL RUNNING
+--DISCREPANCY MES ESTIMATED RUNNING VALUE 10% HIGHER THAN MANUAL COMPUTED BY OPS
+--SELECT * FROM [X].[BatchExplorerRepFM2].[dbo].[vueMashLoad] ORDER BY PVR_LOTNUMBER DESC 
