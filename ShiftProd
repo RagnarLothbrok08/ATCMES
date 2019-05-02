@@ -1,1 +1,527 @@
+USE [PMES]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_ShiftProductionReport]    Script Date: 5/2/2019 4:42:45 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
 
+ALTER proc [dbo].[sp_ShiftProductionReport]
+@dtStart as DATETIME,
+@dtEnd as DATETIME,
+@myLine VARCHAR(50),
+@intMud as int = 0
+AS
+
+-------------------------DOWNTIME--------------------------------------------------
+
+DECLARE @myData as table
+(
+
+	[col1] varchar(50) NULL,
+	[col2] varchar(50) NULL,
+	[col3] varchar(50) NULL,
+	[col4] varchar(50) NULL,
+	[col5] varchar(50) NULL,
+	[col6] varchar(50) NULL,
+	[col7] varchar(50) NULL,
+	[col8] varchar(50) NULL,
+	[col9] varchar(MAX) NULL,
+	[col10] varchar(50) NULL,
+	[col11] varchar(50) NULL,
+	[col12] varchar(50) NULL,
+	[col13] varchar(50) NULL,
+	[col14] varchar(50) NULL,
+	[col15] varchar(50) NULL,
+	[col16] DATETIME NULL,
+	[col17] DATETIME NULL,
+	[col18] varchar(50) NULL,
+	[col19] varchar(50) NULL,
+	[col20] varchar(50) NULL,
+	[col21] varchar(50) NULL,
+	[col22] varchar(50) NULL,
+	[col23] varchar(50) NULL
+
+);
+
+INSERT INTO @myData
+EXEC sp_procDownTimeList_SPR @dtStart, @dtEnd,@myLine
+--EXEC sp_procDownTimeList_SPR '2019-04-03 12:01 AM',  '2019-04-04 12:00 AM', ''
+
+-------------------------PELLETING--------------------------------------------------
+
+DECLARE @myTmp as table
+(
+
+	[col1] varchar(50) NULL,
+	[col2] varchar(50) NULL,
+	[col3] varchar(50) NULL,
+	[col4] varchar(50) NULL,
+	[col5] varchar(50) NULL,
+	[col6] varchar(50) NULL,
+	[col7] varchar(50) NULL,
+	[col8] DATETIME NULL,
+	[col9] DATETIME NULL,
+	[col10] varchar(50) NULL,
+	[col11] varchar(50) NULL,
+	[col12] varchar(50) NULL,
+	[col13] varchar(50) NULL
+
+);
+DECLARE @newDT DATE = CONVERT(DATE,@dtStart)
+INSERT INTO @myTmp
+EXEC [sp_GetPelletingValues] @newDT,@myLine,0
+
+-------------------------FM2 LINE 3 PELLETING OUTPUT--------------------------------------------------
+
+DECLARE @FM2L3OUTPUT as table
+(
+
+	[col1] varchar(50) NULL,
+	[col2] varchar(50) NULL,
+	[col3] varchar(50) NULL,
+	[col4] varchar(50) NULL,
+	[col5] varchar(50) NULL,
+	[col6] varchar(50) NULL,
+	[col7] varchar(50) NULL,
+	[col8] DATETIME NULL,
+	[col9] DATETIME NULL,
+	[col10] varchar(50) NULL,
+	[col11] varchar(50) NULL,
+	[col12] varchar(50) NULL,
+	[col13] varchar(50) NULL
+
+);
+
+INSERT INTO @FM2L3OUTPUT
+EXEC [sp_GetPelletingValues] @newDT,'301',0
+
+-------------------------FM2 LINE 4 PELLETING OUTPUT--------------------------------------------------
+
+DECLARE @FM2L4OUTPUT as table
+(
+
+	[col1] varchar(50) NULL,
+	[col2] varchar(50) NULL,
+	[col3] varchar(50) NULL,
+	[col4] varchar(50) NULL,
+	[col5] varchar(50) NULL,
+	[col6] varchar(50) NULL,
+	[col7] varchar(50) NULL,
+	[col8] DATETIME NULL,
+	[col9] DATETIME NULL,
+	[col10] varchar(50) NULL,
+	[col11] varchar(50) NULL,
+	[col12] varchar(50) NULL,
+	[col13] varchar(50) NULL
+
+);
+
+INSERT INTO @FM2L4OUTPUT
+EXEC [sp_GetPelletingValues] @newDT,'311',0
+
+-------------------------FM TOTAL PELLETING OUTPUT--------------------------------------------------
+
+DECLARE @TotalPell as table
+(
+
+	[col1] varchar(50) NULL,
+	[col2] varchar(50) NULL,
+	[col3] varchar(50) NULL,
+	[col4] varchar(50) NULL,
+	[col5] varchar(50) NULL,
+	[col6] varchar(50) NULL,
+	[col7] varchar(50) NULL,
+	[col8] DATETIME NULL,
+	[col9] DATETIME NULL,
+	[col10] varchar(50) NULL,
+	[col11] varchar(50) NULL,
+	[col12] varchar(50) NULL,
+	[col13] varchar(50) NULL
+
+);
+
+INSERT INTO @TotalPell
+EXEC [sp_GetPelletingValues] @newDT,'',0
+
+-------------------------TOTALIZER--------------------------------------------------
+
+DECLARE @FM2BatchingTotal FLOAT
+SELECT @FM2BatchingTotal = CAST(SUM(BD_ACTUALBATCHSIZE)/1000 AS DECIMAL(10,2)) 
+FROM [X].[BatchExplorerRepFM2].[DBO].CFG_BATCHES 
+WHERE BD_STARTTIME BETWEEN @dtStart  AND @dtEnd --GROUP BY BD_LOTNUMBER 
+
+DECLARE @FM2L3PelletingTotalRR FLOAT
+DECLARE @FM2L3PelletingTotalOutput FLOAT
+DECLARE @FM2L3PelletingTotalRunTime FLOAT
+DECLARE @FM2L4PelletingTotalRR FLOAT
+DECLARE @FM2L4PelletingTotalOutput FLOAT
+DECLARE @FM2L4PelletingTotalRunTime FLOAT
+DECLARE @FM2TotalPellOutuput FLOAT
+DECLARE @DTCountCOLine3 INTEGER
+DECLARE @COTotalTimeLine3 FLOAT
+DECLARE @SDTotalTimeLine3 FLOAT
+DECLARE @EmergencyDTLine3 FLOAT
+DECLARE @DTCountCOLine4 INTEGER
+DECLARE @COTotalTimeLine4 FLOAT
+DECLARE @SDTotalTimeLine4 FLOAT
+DECLARE @EmergencyDTLine4 FLOAT
+DECLARE @TotalDowntime FLOAT
+
+
+SELECT @FM2L3PelletingTotalOutput = SUM(CONVERT(FLOAT,Col1)),@FM2L3PelletingTotalRunTime = SUM(CONVERT(FLOAT,Col2)), @FM2L3PelletingTotalRR = CONVERT(DECIMAL(10,2),@FM2L3PelletingTotalOutput/@FM2L3PelletingTotalRunTime)  FROM @FM2L3OUTPUT
+SELECT @FM2L4PelletingTotalOutput = SUM(CONVERT(FLOAT,Col1)),@FM2L4PelletingTotalRunTime = SUM(CONVERT(FLOAT,Col2)), @FM2L4PelletingTotalRR = CONVERT(DECIMAL(10,2),@FM2L4PelletingTotalOutput/@FM2L4PelletingTotalRunTime)  FROM @FM2L4OUTPUT
+SELECT @FM2TotalPellOutuput = SUM(CONVERT(FLOAT,Col1)) FROM @TotalPell
+SELECT @DTCountCOLine3 = COUNT(Col5), @COTotalTimeLine3 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col5 = 'CO' AND col11 = 'F2-L1'
+SELECT @SDTotalTimeLine3 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col5 = 'SD' AND col11 = 'F2-L1'
+SELECT @EmergencyDTLine3 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col4 = 'Unplanned' AND col11 = 'F2-L1'
+SELECT @DTCountCOLine4 = COUNT(Col5), @COTotalTimeLine4 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col5 = 'CO' AND col11 = 'F2-L2'
+SELECT @SDTotalTimeLine4 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col5 = 'SD' AND col11 = 'F2-L2'
+SELECT @EmergencyDTLine4 = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData WHERE col4 = 'Unplanned' AND col11 = 'F2-L2'
+SELECT @TotalDowntime = CONVERT(DECIMAL(10,2),SUM(CONVERT(FLOAT,col8))) FROM @myData
+
+
+-------------------------REPORT LIST--------------------------------------------------
+IF @intMud = 0
+
+BEGIN
+WITH myData AS
+(
+
+	SELECT 'BATCHING'[Col1],''[Col2],''[Col3],''[Col4],''[Col5],''[Col6],''[Col7],''[Col8],''[Col9],''[Col10],''[Col11],''[Col12],''[Col13],''[Col14],''[Col15],''[Col16],''[Col17],''[Col18],''[Col19],''[Col20],''[Col21],1[Col22]
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','BATCH QTY','BATCH DONE','BATCH START', 'BATCH END','ACTUAL WEIGHT','DURATION','','','','','','','','','','','','',2
+				UNION
+
+					SELECT 
+					CONVERT(VARCHAR(50),t3.BD_LOTNUMBER),
+					CONVERT(VARCHAR(50),t1.AR_ARTICLECODE),
+					CONVERT(VARCHAR(50),UPPER(t1.AR_NAME)),  
+					CONVERT(VARCHAR(50),t4.DP_BATCHESSET), 
+					CONVERT(VARCHAR(50),t4.DP_BATCHESDONE),
+					CONVERT(VARCHAR(50),MIN(t3.BD_STARTTIME),21), 
+					CONVERT(VARCHAR(50),MAX(t3.BD_ENDTIME),21), 
+					CONVERT(VARCHAR(50),SUM( t3.BD_ACTUALBATCHSIZE)),
+					CONVERT(VARCHAR(50),CAST ( MAX(t3.BD_ENDTIME) -  MIN(t3.BD_STARTTIME) as time)) [Duration]
+					
+					,'','','','','','','','','','','','',3
+					FROM [X].[BatchExplorerRepFM2].[dbo].CFG_ARTICLE t1 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].[CFG_PRODUCT] t2 ON t1.AR_ARTICLE_ID = t2.PRO_PRODUCT_ID 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].CFG_BATCHES t3 ON t2.PRO_PRODUCT_ID = t3.BD_PRODUCT_ID 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].CFG_DAYPROGRAM t4 ON  t3.BD_LOTNUMBER  = t4.DP_LOTNUMBER 
+					WHERE 
+					--DP_BATCHESSET = DP_BATCHESDONE AND 
+					BD_STARTTIME BETWEEN @dtStart  AND @dtEnd
+					GROUP BY t3.BD_LOTNUMBER, t1.AR_ARTICLECODE, 
+					t1.AR_NAME,t4.DP_BATCHESSET,DP_PRESSLINE_ID,t4.DP_BATCHESDONE
+
+
+					/*
+					SELECT CONVERT(VARCHAR(50),BD_LOTNUMBER),CONVERT(VARCHAR(50),MIN(BD_STARTTIME),21),CONVERT(VARCHAR(50),MAX(BD_STARTTIME),21), 
+					CONVERT(VARCHAR(50),CAST(SUM(BD_ACTUALBATCHSIZE)/1000 AS DECIMAL(10,2))),'','','','','','','','','','','','','','','','','',3 FROM [X].[BatchExplorerRepFM2].[DBO].CFG_BATCHES 
+					WHERE BD_STARTTIME BETWEEN @dtStart  AND @dtEnd GROUP BY BD_LOTNUMBER 
+					*/
+
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',4
+								UNION 
+	SELECT 'PELLETING','','','','','','','','','','','','','','','','','','','','',5
+		UNION
+			SELECT 'LOTNUMBER','CODE','PRODUCT DESCRIPTION','OUTPUT','LINE','PELLETING START','PELLETING END','RUN TIME', 'RUN RATE','','','','','','','','','','','','',6
+				UNION
+					SELECT 
+					col12,--LOT
+					col6,--PRODCODE
+					col7,--PRODDESC
+					col1,--OUTPUT
+					col13,--LINE
+					CONVERT(VARCHAR(50),col8,21),--START
+					CONVERT(VARCHAR(50),col9,21),--END
+					col2,--RUNTIME
+					col3,--RUNRATE
+					'','','','','','','','','','','','',7 FROM @myTmp
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',8
+								UNION
+	SELECT 'BIN FILLING','','','','','','','','','','','','','','','','','','','','',9
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','FG BIN','','TIME START','TIME END','','','','','','','','','','','','','','',10
+				UNION
+					SELECT 
+					CONVERT(VARCHAR(50),t1.vchrLot),		--LOT
+					CONVERT(VARCHAR(50),t3.AR_ARTICLECODE),	--PROD CODE
+					CONVERT(VARCHAR(50),UPPER(t3.AR_NAME)),	--PROD DESC
+					CONVERT(VARCHAR(50),t1.intBinID),		--BIN
+					'',
+					CONVERT(VARCHAR(50),MIN(t1.dtStart),21),--START
+					CONVERT(VARCHAR(50),MAX(t1.dtEnd),21),	--END
+					'','','','','','','','','','','','','','',11
+					FROM tblProc_BinFilling t1
+					INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_PRESSPROGRAM t2 ON t1.vchrLot = t2.PRM_LOTNUMBER
+					INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_ARTICLE t3 on t2.PRM_PRODUCTID = t3.AR_ARTICLE_ID
+					WHERE t1.dtTimeStamp BETWEEN DATEADD(SECOND,-1,CONVERT(DATETIME,@dtStart)) AND DATEADD(SECOND,-1,CONVERT(DATETIME,@dtEnd)) 
+					AND t1.intBinID <> 0
+					GROUP BY t1.vchrLot,t1.intBinID,t3.AR_ARTICLECODE,t3.AR_NAME
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',12
+								UNION
+	SELECT 'BAGGING','','','','','','','','','','','','','','','','','','','','',13
+		UNION
+			SELECT 'RUN TICKET NO','CODE','DESCRIPTION','PRODUCTION CODE','BAG SIZE','BAGGING DATE','TIME START','TIME END','FORM','FOREMAN','ACCEPTED','ON-HOLD','REJECTED','SETOFFS','LAST BAGS','DISCHARGES','TOTALOUTPUT','QUICK FIX','','','',14
+				
+				UNION
+					SELECT 
+					--CONVERT(VARCHAR(50),ISNULL([LINE],'')),
+					--CONVERT(VARCHAR(50),ISNULL([STATUS],'')),
+					--CONVERT(VARCHAR(50),ISNULL([WFFRR NO],'')),
+					CONVERT(VARCHAR(50),ISNULL([RUN TICKET NO],'')),
+					CONVERT(VARCHAR(50),ISNULL([CODE],'')),
+					CONVERT(VARCHAR(50),ISNULL(UPPER([DESCRIPTION]),'')),
+					CONVERT(VARCHAR(50),ISNULL([PRODUCTION CODE],'')),
+					CONVERT(VARCHAR(50),ISNULL([BAG SIZE],'')),
+					CONVERT(VARCHAR(50),ISNULL([BAGGING DATE],''),21),
+					CONVERT(VARCHAR(50),ISNULL([TIME START],''),21),
+					CONVERT(VARCHAR(50),ISNULL([TIME END],''),21),
+					CONVERT(VARCHAR(50),ISNULL([FORM],'')),
+					CONVERT(VARCHAR(50),ISNULL([FOREMAN],'')),
+					CONVERT(VARCHAR(50),ISNULL([ACCEPTED],'')),
+					CONVERT(VARCHAR(50),ISNULL([ON-HOLD],'')),
+					CONVERT(VARCHAR(50),ISNULL([REJECTED],'')),
+					CONVERT(VARCHAR(50),ISNULL([SETOFFS],'')),
+					CONVERT(VARCHAR(50),ISNULL([LAST BAGS],'')),
+					CONVERT(VARCHAR(50),ISNULL([DISCHARGES],'')),
+					CONVERT(VARCHAR(50),ISNULL([TOTALOUTPUT],'')),
+					CONVERT(VARCHAR(50),ISNULL([QUICK FIX],'')),
+					
+					'','','',15 FROM vueBagged
+					WHERE DTBAG BETWEEN @dtStart  AND @dtEnd 
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',16
+								UNION
+	SELECT 'DOWNTIME','','','','','','','','','','','','','','','','','','','','',17
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','CATEGORY','HOURS','DOWNTIME START','DOWNTIME END','CLASS','SUBCLASS','FORM','REMARKS','EQUIPMENT','LINE','','','','','','','','',18
+				UNION
+					SELECT
+					ISNULL(col19,''),	--Lotnumber
+					ISNULL(col21,''),	--CODE
+					ISNULL(col22,''),	--DESC
+					ISNULL(col4,''),	--CATEGORY
+					ISNULL(col8,''),	--DURATION
+					ISNULL(CONVERT(VARCHAR(50),col16,21),''),	--START
+					ISNULL(CONVERT(VARCHAR(50),col17,21),''),	--END
+					ISNULL(col5,''),	--CLASS
+					ISNULL(col6,''),	--SUB CLASS
+					ISNULL(col7,''),	--FORM
+
+					ISNULL(col9,''),	--REMARKS
+					ISNULL(col10,''),	--EQUIPMENT
+					ISNULL(col11,''),	--LINE
+
+					'','','','','','','','',19 FROM @myData 
+
+)
+
+SELECT * FROM myData ORDER BY Col22 ASC
+
+END
+
+IF @intMud = 1
+
+BEGIN
+WITH myList AS
+(
+	SELECT 'Output Summary per Mill'[Col1],''[Col2],''[Col3],''[Col4],''[Col5],''[Col6],''[Col7],''[Col8],''[Col9],''[Col10],''[Col11],''[Col12],''[Col13],''[Col14],''[Col15],''[Col16],''[Col17],''[Col18],''[Col19],''[Col20],''[Col21],1[Col22]
+		UNION
+			SELECT '','','','','','','','','','','','','','','','','','','','','',2
+				UNION
+					SELECT 'Mill','Total Batching Output','Total Pelleting Output','','','','','','','','','','','','','','','','','','',3
+					UNION
+					SELECT 'FeedMill 1',CONVERT(VARCHAR(50),ISNULL(0,0)),CONVERT(VARCHAR(50),ISNULL(0,0)),'','','','','','','','','','','','','','','','','','',4
+					UNION
+					SELECT 'FeedMill 2',CONVERT(VARCHAR(50),ISNULL(@FM2BatchingTotal,0)),CONVERT(VARCHAR(50),ISNULL(@FM2TotalPellOutuput,0)),'','','','','','','','','','','','','','','','','','',5
+					UNION
+					SELECT '','','','','','','','','','','','','','','','','','','','','',6
+					UNION
+					SELECT 'Line','Total MT','Total Run Rate','','','','','','','','','','','','','','','','','','',7
+					UNION
+					SELECT 'Line 3',CONVERT(VARCHAR(50),ISNULL(@FM2L3PelletingTotalOutput,0)),CONVERT(VARCHAR(50),ISNULL(@FM2L3PelletingTotalRR,0)),'','','','','','','','','','','','','','','','','','',8
+					UNION
+					SELECT 'Line 4',CONVERT(VARCHAR(50),ISNULL(@FM2L4PelletingTotalOutput,0)),CONVERT(VARCHAR(50),ISNULL(@FM2L4PelletingTotalRR,0)),'','','','','','','','','','','','','','','','','','',9
+					UNION
+					SELECT '','','','','','','','','','','','','','','','','','','','','',10
+					UNION
+					SELECT 'Downtime Summary per Mill','','','','','','','','','','','','','','','','','','','','',11
+					UNION
+					SELECT 'Line','Total Change-over Time','No. of Change-over','Total Scheduled/SD','Total Emergency Downtime','','','','','','','','','','','','','','','','',12
+					UNION
+					SELECT 'Line 3',CONVERT(VARCHAR(50),ISNULL(@COTotalTimeLine3,0)),CONVERT(VARCHAR(50),ISNULL(@DTCountCOLine3,0)),CONVERT(VARCHAR(50),ISNULL(@SDTotalTimeLine3,0)),CONVERT(VARCHAR(50),ISNULL(@EmergencyDTLine3,0)),'','','','','','','','','','','','','','','','',13
+					UNION
+					SELECT 'Line 4',CONVERT(VARCHAR(50),ISNULL(@COTotalTimeLine4,0)),CONVERT(VARCHAR(50),ISNULL(@DTCountCOLine4,0)),CONVERT(VARCHAR(50),ISNULL(@SDTotalTimeLine4,0)),CONVERT(VARCHAR(50),ISNULL(@EmergencyDTLine4,0)),'','','','','','','','','','','','','','','','',14
+					UNION
+					SELECT '','','','','','','','','','','','','','','','','','','','','',15
+					UNION
+					SELECT 'Total Downtime','','','','','','','','','','','','','','','','','','','','',16
+					UNION
+					SELECT CONVERT(VARCHAR(50),ISNULL(@TotalDowntime,0)),'','','','','','','','','','','','','','','','','','','','',17
+					UNION
+					SELECT '','','','','','','','','','','','','','','','','','','','','',18
+					UNION
+
+	SELECT 'BATCHING','','','','','','','','','','','','','','','','','','','','',19
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','BATCH QTY','BATCH DONE','BATCH START', 'BATCH END','ACTUAL WEIGHT','DURATION','','','','','','','','','','','','',20
+				UNION
+
+					SELECT 
+					CONVERT(VARCHAR(50),t3.BD_LOTNUMBER),
+					CONVERT(VARCHAR(50),t1.AR_ARTICLECODE),
+					CONVERT(VARCHAR(50),UPPER(t1.AR_NAME)),  
+					CONVERT(VARCHAR(50),t4.DP_BATCHESSET), 
+					CONVERT(VARCHAR(50),t4.DP_BATCHESDONE),
+					CONVERT(VARCHAR(50),MIN(t3.BD_STARTTIME),21), 
+					CONVERT(VARCHAR(50),MAX(t3.BD_ENDTIME),21), 
+					CONVERT(VARCHAR(50),SUM( t3.BD_ACTUALBATCHSIZE)),
+					CONVERT(VARCHAR(50),CAST ( MAX(t3.BD_ENDTIME) -  MIN(t3.BD_STARTTIME) as time)) [Duration]
+					
+					,'','','','','','','','','','','','',21
+					FROM [X].[BatchExplorerRepFM2].[dbo].CFG_ARTICLE t1 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].[CFG_PRODUCT] t2 ON t1.AR_ARTICLE_ID = t2.PRO_PRODUCT_ID 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].CFG_BATCHES t3 ON t2.PRO_PRODUCT_ID = t3.BD_PRODUCT_ID 
+					INNER JOIN [X].[BatchExplorerRepFM2].[dbo].CFG_DAYPROGRAM t4 ON  t3.BD_LOTNUMBER  = t4.DP_LOTNUMBER 
+					WHERE 
+					--DP_BATCHESSET = DP_BATCHESDONE AND 
+					BD_STARTTIME BETWEEN @dtStart  AND @dtEnd
+					GROUP BY t3.BD_LOTNUMBER, t1.AR_ARTICLECODE, 
+					t1.AR_NAME,t4.DP_BATCHESSET,DP_PRESSLINE_ID,t4.DP_BATCHESDONE
+
+
+					/*
+					SELECT CONVERT(VARCHAR(50),BD_LOTNUMBER),CONVERT(VARCHAR(50),MIN(BD_STARTTIME),21),CONVERT(VARCHAR(50),MAX(BD_STARTTIME),21), 
+					CONVERT(VARCHAR(50),CAST(SUM(BD_ACTUALBATCHSIZE)/1000 AS DECIMAL(10,2))),'','','','','','','','','','','','','','','','','',3 FROM [X].[BatchExplorerRepFM2].[DBO].CFG_BATCHES 
+					WHERE BD_STARTTIME BETWEEN @dtStart  AND @dtEnd GROUP BY BD_LOTNUMBER 
+					*/
+
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',22
+								UNION 
+	SELECT 'PELLETING','','','','','','','','','','','','','','','','','','','','',23
+		UNION
+			SELECT 'LOTNUMBER','CODE','PRODUCT DESCRIPTION','OUTPUT','LINE','PELLETING START','PELLETING END','RUN TIME', 'RUN RATE','','','','','','','','','','','','',24
+				UNION
+					SELECT 
+					col12,--LOT
+					col6,--PRODCODE
+					col7,--PRODDESC
+					col1,--OUTPUT
+					col13,--LINE
+					CONVERT(VARCHAR(50),col8,21),--START
+					CONVERT(VARCHAR(50),col9,21),--END
+					col2,--RUNTIME
+					col3,--RUNRATE
+					'','','','','','','','','','','','',25 FROM @myTmp
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',26
+								UNION
+	SELECT 'BIN FILLING','','','','','','','','','','','','','','','','','','','','',27
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','FG BIN','','TIME START','TIME END','','','','','','','','','','','','','','',28
+				UNION
+					SELECT 
+					CONVERT(VARCHAR(50),t1.vchrLot),		--LOT
+					CONVERT(VARCHAR(50),t3.AR_ARTICLECODE),	--PROD CODE
+					CONVERT(VARCHAR(50),UPPER(t3.AR_NAME)),	--PROD DESC
+					CONVERT(VARCHAR(50),t1.intBinID),		--BIN
+					'',
+					CONVERT(VARCHAR(50),MIN(t1.dtStart),21),--START
+					CONVERT(VARCHAR(50),MAX(t1.dtEnd),21),	--END
+					'','','','','','','','','','','','','','',29
+					FROM tblProc_BinFilling t1
+					INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_PRESSPROGRAM t2 ON t1.vchrLot = t2.PRM_LOTNUMBER
+					INNER JOIN [X].[BatchExplorerRepFM2].[DBO].CFG_ARTICLE t3 on t2.PRM_PRODUCTID = t3.AR_ARTICLE_ID
+					WHERE t1.dtTimeStamp BETWEEN DATEADD(SECOND,-1,CONVERT(DATETIME,@dtStart)) AND DATEADD(SECOND,-1,CONVERT(DATETIME,@dtEnd)) 
+					AND t1.intBinID <> 0
+					GROUP BY t1.vchrLot,t1.intBinID,t3.AR_ARTICLECODE,t3.AR_NAME
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',30
+								UNION
+	SELECT 'BAGGING','','','','','','','','','','','','','','','','','','','','',31
+		UNION
+			SELECT 'RUN TICKET NO','CODE','DESCRIPTION','PRODUCTION CODE','BAG SIZE','BAGGING DATE','TIME START','TIME END','FORM','FOREMAN','ACCEPTED','ON-HOLD','REJECTED','SETOFFS','LAST BAGS','DISCHARGES','TOTALOUTPUT','QUICK FIX','','','',32
+				
+				UNION
+					SELECT 
+					--CONVERT(VARCHAR(50),ISNULL([LINE],'')),
+					--CONVERT(VARCHAR(50),ISNULL([STATUS],'')),
+					--CONVERT(VARCHAR(50),ISNULL([WFFRR NO],'')),
+					CONVERT(VARCHAR(50),ISNULL([RUN TICKET NO],'')),
+					CONVERT(VARCHAR(50),ISNULL([CODE],'')),
+					CONVERT(VARCHAR(50),ISNULL(UPPER([DESCRIPTION]),'')),
+					CONVERT(VARCHAR(50),ISNULL([PRODUCTION CODE],'')),
+					CONVERT(VARCHAR(50),ISNULL([BAG SIZE],'')),
+					CONVERT(VARCHAR(50),ISNULL([BAGGING DATE],''),21),
+					CONVERT(VARCHAR(50),ISNULL([TIME START],''),21),
+					CONVERT(VARCHAR(50),ISNULL([TIME END],''),21),
+					CONVERT(VARCHAR(50),ISNULL([FORM],'')),
+					CONVERT(VARCHAR(50),ISNULL([FOREMAN],'')),
+					CONVERT(VARCHAR(50),ISNULL([ACCEPTED],'')),
+					CONVERT(VARCHAR(50),ISNULL([ON-HOLD],'')),
+					CONVERT(VARCHAR(50),ISNULL([REJECTED],'')),
+					CONVERT(VARCHAR(50),ISNULL([SETOFFS],'')),
+					CONVERT(VARCHAR(50),ISNULL([LAST BAGS],'')),
+					CONVERT(VARCHAR(50),ISNULL([DISCHARGES],'')),
+					CONVERT(VARCHAR(50),ISNULL([TOTALOUTPUT],'')),
+					CONVERT(VARCHAR(50),ISNULL([QUICK FIX],'')),
+					
+					'','','',33 FROM vueBagged
+					WHERE DTBAG BETWEEN @dtStart  AND @dtEnd 
+						UNION
+							SELECT '','','','','','','','','','','','','','','','','','','','','',34
+								UNION
+	SELECT 'DOWNTIME','','','','','','','','','','','','','','','','','','','','',35
+		UNION
+			SELECT 'LOTNUMBER','CODE','DESCRIPTION','CATEGORY','HOURS','DOWNTIME START','DOWNTIME END','CLASS','SUBCLASS','FORM','REMARKS','EQUIPMENT','LINE','','','','','','','','',36
+				UNION
+					SELECT
+					ISNULL(col19,''),	--Lotnumber
+					ISNULL(col21,''),	--CODE
+					ISNULL(col22,''),	--DESC
+					ISNULL(col4,''),	--CATEGORY
+					ISNULL(col8,''),	--DURATION
+					ISNULL(CONVERT(VARCHAR(50),col16,21),''),	--START
+					ISNULL(CONVERT(VARCHAR(50),col17,21),''),	--END
+					ISNULL(col5,''),	--CLASS
+					ISNULL(col6,''),	--SUB CLASS
+					ISNULL(col7,''),	--FORM
+
+					ISNULL(col9,''),	--REMARKS
+					ISNULL(col10,''),	--EQUIPMENT
+					ISNULL(col11,''),	--LINE
+
+					'','','','','','','','',37 FROM @myData 
+
+)
+
+SELECT * FROM myList ORDER BY Col22 ASC
+
+END
+
+IF @intMud = 2
+BEGIN
+SELECT 
+ISNULL(@FM2BatchingTotal,0),
+ISNULL(@FM2L3PelletingTotalRR,0),
+ISNULL(@FM2L3PelletingTotalOutput,0),
+ISNULL(@FM2L4PelletingTotalRR,0),
+ISNULL(@FM2L4PelletingTotalOutput,0),
+ISNULL(@FM2TotalPellOutuput,0),
+ISNULL(@DTCountCOLine3,0),
+ISNULL(@COTotalTimeLine3,0),
+ISNULL(@SDTotalTimeLine3,0),
+ISNULL(@EmergencyDTLine3,0),
+ISNULL(@DTCountCOLine4,0),
+ISNULL(@COTotalTimeLine4,0),
+ISNULL(@SDTotalTimeLine4,0),
+ISNULL(@EmergencyDTLine4,0),
+ISNULL(@TotalDowntime,0)
+END
