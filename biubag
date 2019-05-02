@@ -1,0 +1,65 @@
+USE [PMES]
+GO
+
+/****** Object:  View [dbo].[vueBagged]    Script Date: 5/2/2019 4:49:16 PM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+/*order by t4.dtTimeStamp*/
+ALTER VIEW [dbo].[vueBagged]
+AS
+SELECT        
+MAX(t1.intID) [intFPRBD_ID],
+MAX(t1.vchrLine) [LINE], 
+MAX(t2.vchrStatus) [STATUS], 
+MAX(t4.intShift) [SHIFT], 
+MAX(t99.vchrUName) [FOREMAN],
+MAX(t4.intWFFRRno) [WFFRR NO], 
+t1.vchrRunTicketNo [RUN TICKET NO], 
+MAX(t1.vchrProdCode) [CODE], 
+MAX(t1.vchrProdName) [DESCRIPTION], 
+MAX(t4.vchrProductionCode) [PRODUCTION CODE], 
+MAX(t5.dblBagSize) [BAG SIZE], 
+MAX(t1.vchrForm) [FORM], 
+MAX(t4.tmStart) [TIME START], 
+MAX(t4.tmEnd) [TIME END], 
+SUM(CONVERT(decimal(10, 2), DATEDIFF(n, t4.tmStart, CASE WHEN t4.tmEnd = '00:00:00.0000000' THEN '23:59:59.0000000' ELSE t4.tmEnd END) / 60.0)) [DURATION], 
+SUM(t4.dblAccepted) [ACCEPTED], 
+SUM(t4.dblOnHold) [ON-HOLD], 
+SUM(t4.dblRejected) [REJECTED], 
+SUM(t4.dblSetOffs) [SETOFFS], 
+SUM(t4.dblLastBag) [LAST BAGS], 
+SUM(t4.dblDischarges) [DISCHARGES], 
+SUM(t4.dblTotal) [TOTALOUTPUT], 
+MAX(t4.vchrOnHoldReason) [REASON FOR ON-HOLD], 
+MAX(t4.vchrRejectedReason) [REASON FOR REJECTED], 
+MAX(t4.vchrSetOffsReason) [REASON FOR SET OFFS], 
+MAX(t4.dblQuickFix) [QUICK FIX], 
+MAX(t4.vchrQuickFixReason) [REASON FOR QUICK FIX], 
+MAX(t4.dtTimeStamp) [MODIFIED], 
+MAX(t1.dtExpected) [DUE DATE], 
+MAX(t4.intUserID) [INTUSERID], 
+MAX(t1.intStatus) [INTSTAT], 
+SUM(t4.dblTotalOutput) [TOTAL WT], 
+MAX(t7.intPLine) [BAGLINE], 
+MAX(CONVERT(DATETIME, t4.dtDate)) [BAGGING DATE],
+CAST(CONVERT(VARCHAR(50),MAX(t4.dtDate)) + ' ' + CONVERT(VARCHAR(50),MAX(t4.tmStart)) AS datetime2) [DTBAG]
+FROM dbo.tblFPRequestBreakDown AS t1 INNER JOIN
+dbo.tblStatus AS t2 ON t1.intStatus = t2.intStat INNER JOIN
+dbo.tblFPRequest AS t3 ON t1.intFPRequestID = CONVERT(INT, t3.vchrFPRNo) INNER JOIN
+dbo.tblProducts AS t5 ON t1.vchrProdCode = t5.vchrProdCode LEFT OUTER JOIN
+dbo.tblProc_BaggingDetails AS t4 ON t1.intID = t4.intFPRBD_ID LEFT OUTER JOIN
+dbo.tblPUsers AS t99 ON t4.intUserID = t99.intUserID LEFT OUTER JOIN
+dbo.tblPelleting AS t7 ON t1.vchrLine = t7.vchrPLCode
+GROUP BY t1.vchrRunTicketNo
+
+
+
+GO
+
+
