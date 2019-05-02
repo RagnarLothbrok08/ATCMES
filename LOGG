@@ -1,27 +1,178 @@
 SHIFT PROD
+--=========================================================================================
+USE [PMES]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_RunTicketReport]    Script Date: 5/2/2019 4:37:18 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROC [dbo].[sp_RunTicketReport]
+@rtnnumber varchar(50) = ''
+AS
 
---==================		
-IF @intMode = 11
-		BEGIN
-				WITH myData (intRow,Code,AR_NAME, Dosed, Actual, Deviation)
-				as
-				(
+--SELECT * FROM [dbo].[vuePelletingDetails]
+DECLARE @BatchStart DATETIME
+DECLARE @BatchEnd DATETIME
+DECLARE @BatchTarget FLOAT
+DECLARE @BatchActual FLOAT
+DECLARE @BatchQty INT
+DECLARE @BatchTotal FLOAT
+DECLARE @BatchDiff FLOAT
+DECLARE @PelletingStart DATETIME
+DECLARE @PelletingEnd DATETIME
+DECLARE @PelletingRuntime FLOAT
+DECLARE @PelletingOutput FLOAT
+DECLARE @PelletingRunrate FLOAT
+DECLARE @PelletingTemp FLOAT
+DECLARE @PelletingLoad FLOAT
+DECLARE @PelletingCode VARCHAR(50)
+DECLARE @PelletingDesc VARCHAR(50)
+DECLARE @BaggingRTN VARCHAR(50)
+DECLARE @BaggingSize INT
+DECLARE @BaggingDate DATETIME
+DECLARE @BaggingAccepted FLOAT
+DECLARE @BaggingOnhold FLOAT
+DECLARE @BaggingReject FLOAT
+DECLARE @BaggingSetoffs FLOAT
+DECLARE @BaggingOutput FLOAT
+DECLARE @BaggingLast FLOAT
+DECLARE @BaggingDischarges FLOAT
+DECLARE @BaggingTotal FLOAT
+DECLARE @BaggingSOV FLOAT
+DECLARE @ManualDosed FLOAT
+DECLARE @Forms VARCHAR(50)
 
-				select 
-				ROW_NUMBER() over (ORDER BY BD_PRODUCT_ID) as intRow,AR_ARTICLECODE[Code],
-				AR_NAME,sum(DBS_DOSINGWEIGHT)[Dosed(kg)], 
-				sum(DBS_ACTUALWEIGHT)[Actual(kg)], 
-				round(sum(DBS_DOSINGWEIGHT)-sum(DBS_ACTUALWEIGHT),2)[Deviation(kg)] 
-				from [X].[BatchExplorerRepFM2].[dbo].CFG_BATCHES t1 
-				inner join [X].[BatchExplorerRepFM2].[dbo].CFG_DOSINGBATCHES t2 on t1.BD_BATCHNUMBER = t2.DBS_BATCHNUMBER 
-				inner join [X].[BatchExplorerRepFM2].[dbo].CFG_ARTICLE t3 on t2.DBS_RAWMAT_ID = t3.AR_ARTICLE_ID 
-				inner join tblProc_BatchDetails t4 on t1.BD_LOTNUMBER = t4.vchrLotNumber 
-				inner join tblFPRequestBreakDown t5 on t5.intid = t4.intFPR_BDID
-				where t5.vchrRunTicketNo = @rtnnumber and t1.BD_LOTNUMBER like @lotnumber
-				group by DBS_RAWMAT_ID, DBS_RAWMAT_ID, AR_ARTICLECODE,AR_NAME,BD_PRODUCT_ID,vchrRunTicketNo
-				)
+--################GET MANUAL############################################
+SELECT @ManualDosed = SUM(t2.dblWeight),@Forms = UPPER(t3.vchrFormDesc) FROM tblFPRequestBreakDown t1
+INNER JOIN tbl_ManualDosed t2 ON t1.intID = t2.intFPRBD_ID
+INNER JOIN tblPForms t3 ON t1.vchrForm = t3.vchrForm
+WHERE vchrRunTicketNo = @rtnnumber
+GROUP BY vchrFormDesc
 
-				SELECT Code[RM Code],AR_NAME[RM Name], cast(Dosed as decimal (10,2))[Target WT (kg)], cast(Actual as decimal (10,2))[Actual WT (kg)], cast(Deviation  as decimal (10,2))[Deviation WT (kg)] FROM myData
-			
-		END	
-  --===========================
+--####################BATCHING#########################################
+SELECT 
+@BatchStart = MIN(DTSTART),
+@BatchEnd = MAX(DTEND),
+@BatchTarget = MAX(TARGETWT),
+@BatchActual = CAST(SUM(ACTUALWT) AS DECIMAL(10,2)) + ISNULL(@ManualDosed,0),
+@BatchQty = COUNT(dtEND),
+@BatchTotal = @BatchTarget*@BatchQty,
+@BatchDiff = CAST((@BatchActual-@BatchTotal) AS DECIMAL(10,2))
+FROM [dbo].[vueBatchingDetails] 
+WHERE RTN =  @rtnnumber
+
+
+
+
+--####################PELLETING#########################################
+
+SELECT 
+@PelletingStart = DTSTART,
+@PelletingEnd = DTEND, 
+@PelletingRuntime = CAST(CONVERT(FLOAT,DATEDIFF(MINUTE,DTSTART,DTEND)) /60 AS DECIMAL(10,2)),
+@PelletingOutput = SUM([ACTUAL WT]),
+@PelletingRunrate = CAST(ISNULL((SUM([ACTUAL WT]))/(CONVERT(FLOAT,DATEDIFF(MINUTE,DTSTART,DTEND))/60),0) as decimal (10,2)),
+@PelletingTemp = CAST(AVG([MASH TEMP]) AS DECIMAL(10,2)),
+@PelletingLoad = CAST(AVG([LOAD]) AS DECIMAL(10,2)),
+@PelletingCode = ProdCode,
+@PelletingDesc = UPPER(ProdDesc)
+FROM [dbo].[vuePelletingDetails]
+WHERE vchrRunTicketNo =  @rtnnumber 
+GROUP BY DTSTART,DTEND,ProdCode,ProdDesc;
+--####################BAGGING#########################################
+
+DECLARE @tmpBagged as table
+(
+	[intID] [int] IDENTITY(1,1) NOT NULL,
+	vchrRTN [varchar] (50) NULL,
+	dblBagSize [float] NULL,
+	dtBaggingDate [datetime] NULL,
+	dblAccepted [float] NULL,
+	dblOnhold [float] NULL,
+	dblReject [float] NULL,
+	dblSetoffs [float] NULL,
+	dblOutput [float] NULL,
+	dblLast [float] NULL,
+	dblDischarges [float] NULL,
+	dblTotal [float] NULL,
+	dblSOV [float] NULL
+);
+
+WITH myData
+AS
+(
+SELECT (SUM(dblAccepted+dblOnHold+dblRejected+dblSetOffs)*dblBagSize)[OUTPUT],vchrRunTicketNo [RTN]
+,t3.dblBagSize [BagSize],
+MAX(dtDate) [dtDate], --ALTER
+SUM(dblAccepted) [Accepted],SUM(dblOnHold) [OnHold],SUM(dblRejected) [Rejected],
+SUM(dblSetOffs) [SetOffs],SUM(dblLastBag) [LastBag], SUM(dblDischarges) [Discharges]
+FROM tblProc_BaggingDetails  t1
+INNER JOIN tblFPRequestBreakDown t2 ON t1.intFPRBD_ID = t2.intID
+INNER JOIN tblPelleting t0 ON t2.vchrLine = t0.vchrPLCode
+INNER JOIN tblProducts t3 ON t1.vchrProdCode = t3.vchrProdCode
+GROUP BY dblBagSize,dtDate,vchrRunTicketNo
+)
+/*
+SELECT  
+@BaggingRTN = RTN,
+@BaggingSize = BagSize,
+@BaggingDate = dtDate,
+@BaggingAccepted = SUM(Accepted),
+@BaggingOnhold = SUM(OnHold),
+@BaggingReject = SUM(Rejected),
+@BaggingSetoffs = SUM(SetOffs),
+@BaggingOutput = CAST(ISNULL((SUM([OUTPUT])),0) AS DECIMAL(10,2)),
+@BaggingLast = SUM(LastBag),
+@BaggingDischarges = SUM(Discharges),
+@BaggingTotal = CAST(ISNULL((SUM([OUTPUT])),0) AS DECIMAL(10,2)) + SUM(LastBag) + SUM(Discharges)
+,@BaggingSOV = CAST((@BaggingLast +  @BaggingDischarges + @BaggingOutput - @BaggingOutput)/@BaggingOutput AS DECIMAL(10,2))*100
+FROM myData 
+WHERE RTN =  @rtnnumber
+GROUP BY RTN,dtDate,BagSize
+*/
+INSERT INTO @tmpBagged 
+SELECT  
+RTN,
+BagSize,
+dtDate,
+SUM(Accepted),
+SUM(OnHold),
+SUM(Rejected),
+SUM(SetOffs),
+CONVERT(DECIMAL(10,2),SUM([OUTPUT])),
+SUM(LastBag),
+SUM(Discharges),
+CONVERT(DECIMAL(10,2),SUM([OUTPUT])) + SUM(LastBag) + SUM(Discharges)
+,0
+--CAST((@BaggingLast +  @BaggingDischarges + @BaggingOutput - @BaggingOutput)/@BaggingOutput AS DECIMAL(10,2))*100
+FROM myData 
+WHERE RTN =  @rtnnumber
+GROUP BY RTN,dtDate,BagSize
+
+--SELECT * FROM @tmpBagged
+
+SELECT  
+@BaggingRTN = vchrRTN,
+@BaggingSize = dblBagSize,
+@BaggingDate = MAX(dtBaggingDate),
+@BaggingAccepted = SUM(dblAccepted),
+@BaggingOnhold = SUM(dblOnHold),
+@BaggingReject = SUM(dblReject),
+@BaggingSetoffs = SUM(dblSetOffs),
+@BaggingOutput = CAST(ISNULL((SUM(dblOutput)),0) AS DECIMAL(10,2)),
+@BaggingLast = SUM(dblLast),
+@BaggingDischarges = SUM(dblDischarges),
+@BaggingTotal = CAST(ISNULL((SUM(dblOutput)),0) AS DECIMAL(10,2)) + SUM(dblLast) + SUM(dblDischarges)
+,@BaggingSOV = CAST((((@BaggingTotal - (@BatchActual))/(@BatchActual)) * 100) AS DECIMAL(10,2))
+FROM @tmpBagged 
+WHERE vchrRTN =  @rtnnumber
+GROUP BY vchrRTN,dblBagSize
+
+SELECT @BatchStart[Batch Start],@BatchEnd[Batch End],@BatchTarget[Batch Target],@BatchActual[Batch Actual],@BatchQty[Batch QTY],@BatchTotal[Batch Total],@BatchDiff[Batch Diff]
+		,@PelletingStart[Pelleting Start],@PelletingEnd[Pelleting End],@PelletingRuntime[Pelleting Runtime],@PelletingOutput[Pelleting Outout]
+		,@PelletingRunrate[Pelleting Runrate],@PelletingTemp[Pelleting Temp],@PelletingLoad[Pelleting Load],@PelletingCode[Pelleting Code],@PelletingDesc[Pelleting Description]
+		,@BaggingRTN[Bagging RTN],@BaggingSize[Bagging Size],@BaggingDate[Bagging Date],@BaggingAccepted[Bagging Accepted],@BaggingOnhold[Bagging OnHold],@BaggingReject[Bagging Reject]
+		,@BaggingSetoffs[Bagging SetOff],@BaggingOutput[Bagging Output],@BaggingLast[Bagging Last],@BaggingDischarges[Bagging Discharges],@BaggingTotal[Bagging Total],@BaggingSOV[Bagging SOV],@Forms[Forms]
+
+--=========================================================================================
