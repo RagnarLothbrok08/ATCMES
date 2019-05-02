@@ -1,0 +1,72 @@
+USE [PMES]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_procDownTimeList_SPR]    Script Date: 5/2/2019 5:06:11 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER proc [dbo].[sp_procDownTimeList_SPR]
+    @dtStart datetime = '1900-01-01',
+    @dtEnd datetime = '1900-01-01',
+	@myLine VARCHAR(50) = '',
+	@FM VARCHAR(5) = '2'
+	
+as
+WITH myRawData AS
+(
+SELECT
+ROW_NUMBER() over (order by DTSTART) as intID
+,LINE [PRM_LINE_ID]
+,DTSTART [DOWN_START]
+,DTEND [DOWN_END]
+,LOTNUMBER [LOT]
+,FM
+FROM [dbo].[vuePelletingDateDT] t1
+--INNER JOIN vueMachineLogDetails t2 ON t1.LotNumber = t2.LOT
+WHERE DTSTART IS NOT NULL
+AND OCCURENCE = 'DOWNTIME'
+
+UNION ALL 
+
+SELECT
+ROW_NUMBER() over (order by DTSTART) as intID
+,LINE [PRM_LINE_ID]
+,DTSTART [DOWN_START]
+,DTEND [DOWN_END]
+,LOTNUMBER [LOT]
+,FM
+FROM [dbo].[vuePelletingDateDTFM1] t1
+--INNER JOIN vueMachineLogDetails t2 ON t1.LotNumber = t2.LOT
+WHERE DTSTART IS NOT NULL
+AND OCCURENCE = 'DOWNTIME'
+
+)
+
+
+SELECT t1.intID,t3.vchrAssetNum[AssetNum],t3.intSiteID[SITE ID],
+t3.vchrCategory[CATEGORY],
+t3.vchrDTCode[DOWNTIME CODE],
+t3.vchrSubCode [SUBCLASS CODE],
+t3.vchrForm[FORM],
+convert(decimal(10,2),datediff (n,Down_start,Down_end) / 60.0) [TOTAL DOWNTIME],t3.vchrRemarks[REMARKS],
+t1.PRM_LINE_ID[EQUIPMENT],t2.vchrPLCode[LINE],
+t3.intPellID,t3.dtTimeStamp[DATE],t3.intDT_ID,	
+t3.intUserID, 
+t3.dtStart [DOWNTIME START],
+t3.dtEnd [DOWNTIME END],
+t99.vchrUName [OPERATOR],t3.vchrLot [LOT]
+,t3.vchrDieCode [DIE CODE]
+,t5.CODE
+,UPPER(t5.[DESC]) [DESCRIPT]
+,t2.FMno
+FROM myRawData t1
+INNER JOIN tblPelleting t2 ON t1.PRM_LINE_ID = t2.vchrCode
+LEFT JOIN tblproc_DowntimeBreakdown t3 ON t1.intID = t3.intPellID
+LEFT JOIN tblPUsers t99 ON t3.intUserID = t99.intUserID
+LEFT JOIN vueMachineLogDetails t5 ON t1.LOT = t5.LOT
+WHERE 
+t3.dtStart > '2018-08-08' AND 
+t3.dtEnd BETWEEN @dtStart AND @dtEnd
+AND t3.intPellID LIKE '%'+ @myLine + '%'
+AND FM LIKE '%' + @FM + '%'
+ORDER BY [DOWN_START] DESC
