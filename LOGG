@@ -1,1 +1,27 @@
+SHIFT PROD
 
+--==================		
+IF @intMode = 11
+		BEGIN
+				WITH myData (intRow,Code,AR_NAME, Dosed, Actual, Deviation)
+				as
+				(
+
+				select 
+				ROW_NUMBER() over (ORDER BY BD_PRODUCT_ID) as intRow,AR_ARTICLECODE[Code],
+				AR_NAME,sum(DBS_DOSINGWEIGHT)[Dosed(kg)], 
+				sum(DBS_ACTUALWEIGHT)[Actual(kg)], 
+				round(sum(DBS_DOSINGWEIGHT)-sum(DBS_ACTUALWEIGHT),2)[Deviation(kg)] 
+				from [X].[BatchExplorerRepFM2].[dbo].CFG_BATCHES t1 
+				inner join [X].[BatchExplorerRepFM2].[dbo].CFG_DOSINGBATCHES t2 on t1.BD_BATCHNUMBER = t2.DBS_BATCHNUMBER 
+				inner join [X].[BatchExplorerRepFM2].[dbo].CFG_ARTICLE t3 on t2.DBS_RAWMAT_ID = t3.AR_ARTICLE_ID 
+				inner join tblProc_BatchDetails t4 on t1.BD_LOTNUMBER = t4.vchrLotNumber 
+				inner join tblFPRequestBreakDown t5 on t5.intid = t4.intFPR_BDID
+				where t5.vchrRunTicketNo = @rtnnumber and t1.BD_LOTNUMBER like @lotnumber
+				group by DBS_RAWMAT_ID, DBS_RAWMAT_ID, AR_ARTICLECODE,AR_NAME,BD_PRODUCT_ID,vchrRunTicketNo
+				)
+
+				SELECT Code[RM Code],AR_NAME[RM Name], cast(Dosed as decimal (10,2))[Target WT (kg)], cast(Actual as decimal (10,2))[Actual WT (kg)], cast(Deviation  as decimal (10,2))[Deviation WT (kg)] FROM myData
+			
+		END	
+  --===========================
